@@ -1,103 +1,54 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import React from 'react'
+import toast, { Toaster } from 'react-hot-toast'
+
 import watermark from './utils/watermark.js'
 import aes256gcm from './utils/seal.js'
+
+import useInput from './hooks/useInput.js'
+import useObjectUrl from './hooks/useObjectUrl.js'
+
+import FilePicker from './components/FilePicker.jsx'
+import Preview from './components/Preview.jsx'
+import Section from './components/Section.jsx'
+
+import { ui } from './utils/utils.js'
 
 const { embed, extract } = watermark()
 const { seal, open } = aes256gcm()
 
-function useObjectUrl(blob) {
-    const url = useMemo(() => (blob ? URL.createObjectURL(blob) : null), [blob])
-
-    useEffect(() => {
-        return () => {
-            if (url) URL.revokeObjectURL(url)
-        }
-    }, [url])
-
-    return url
-}
-
-function FilePicker({ file, onFile, hint }) {
-    const ref = useRef(null)
-
-    return (
-        <div
-            onClick={() => ref.current.click()}
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={(e) => {
-                e.preventDefault()
-                const f = e.dataTransfer.files[0]
-                if (f) onFile(f)
-            }}
-            className='border-2 border-dashed border-gray-300 rounded p-6 text-center cursor-pointer hover:border-indigo-400'
-        >
-            <p className='text-sm'>
-                {file ? file.name : 'Click or drop an image'}
-            </p>
-            <p className='text-xs text-gray-500'>{hint}</p>
-            <input
-                ref={ref}
-                type='file'
-                accept='image/*'
-                hidden
-                onChange={(e) => {
-                    if (e.target.files[0]) onFile(e.target.files[0])
-                    e.target.value = ''
-                }}
-            />
-        </div>
-    )
-}
-
-function Preview({ src, label }) {
-    return (
-        <figure className='border rounded overflow-hidden'>
-            <img
-                src={src}
-                alt={label}
-                className='max-h-60 w-full object-contain bg-gray-100'
-            />
-            <figcaption className='text-xs text-gray-500 px-2 py-1 border-t'>
-                {label}
-            </figcaption>
-        </figure>
-    )
-}
-
-export default function App() {
-    const [password, setPassword] = useState('')
-    const [message, setMessage] = useState('user:12345')
-    const [sourceFile, setSourceFile] = useState(null)
-    const [outputBlob, setOutputBlob] = useState(null)
-    const [extractBlob, setExtractBlob] = useState(null)
-    const [result, setResult] = useState(null) // null = nothing yet, false = failed
-    const [status, setStatus] = useState('')
-    const [isError, setIsError] = useState(false)
-    const [busy, setBusy] = useState(false)
+const App = () => {
+    const [password, onPasswordChange] = useInput('')
+    const [message, onMessageChange] = useInput('')
+    const [sourceFile, setSourceFile] = React.useState(null)
+    const [outputBlob, setOutputBlob] = React.useState(null)
+    const [extractBlob, setExtractBlob] = React.useState(null)
+    const [result, setResult] = React.useState(null)
+    const [busy, setBusy] = React.useState(false)
 
     const sourceUrl = useObjectUrl(sourceFile)
     const outputUrl = useObjectUrl(outputBlob)
     const extractUrl = useObjectUrl(extractBlob)
 
-    async function timed(label, fn) {
+    const timed = async (label, fn) => {
         setBusy(true)
         setResult(null)
-        setIsError(false)
-        setStatus(label + '...')
+        const toastId = toast.loading(label + '...')
         const start = performance.now()
         try {
             await fn()
-            setStatus(
+            toast.success(
                 `${label} finished (${Math.round(performance.now() - start)} ms)`,
+                { id: toastId },
             )
         } catch (err) {
-            setIsError(true)
-            setStatus(err.message)
+            toast.error(err.message, { id: toastId })
+        } finally {
+            setBusy(false)
         }
-        setBusy(false)
     }
 
-    function handleEmbed() {
+    const handleEmbed = (e) => {
+        e?.preventDefault()
         timed('Embedding', async () => {
             if (!sourceFile) throw new Error('Pick an image first')
             if (!password) throw new Error('Password is empty')
@@ -109,7 +60,7 @@ export default function App() {
         })
     }
 
-    function handleExtract() {
+    const handleExtract = () => {
         timed('Extracting', async () => {
             if (!extractBlob) throw new Error('Nothing to extract from')
             if (!password) throw new Error('Password is empty')
@@ -120,65 +71,72 @@ export default function App() {
         })
     }
 
-    function download() {
+    const download = () => {
         const a = document.createElement('a')
         a.href = outputUrl
         a.download = 'watermarked.png'
         a.click()
     }
 
-    const btn =
-        'px-4 py-2 rounded text-sm text-white bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50'
-    const field = 'border rounded px-3 py-2 text-sm w-full'
-
     return (
-        <div className='min-h-screen bg-gray-100 p-6'>
-            <div className='max-w-2xl mx-auto space-y-6'>
-                <div>
-                    <h1 className='text-2xl font-bold'>Watermark tester</h1>
-                    <p className='text-sm text-gray-500'>
-                        Hide an encrypted message in an image and see if it
-                        survives re-compression.
+        <div className='min-h-screen bg-zinc-50 px-4 py-10 text-zinc-900'>
+            <Toaster position='bottom-right' />
+            <div className='mx-auto max-w-2xl space-y-5'>
+                <header className='pb-2'>
+                    <h1 className='text-xl font-semibold tracking-tight'>
+                        Watermark Embedder
+                    </h1>
+                    <p className='mt-1 text-sm text-zinc-500'>
+                        Hide an encrypted message inside an image.
                     </p>
-                </div>
+                </header>
 
-                <div className='bg-white rounded p-4 shadow-sm'>
-                    <label className='text-sm block mb-1'>Password</label>
+                <div className={`${ui.card} p-5`}>
+                    <label htmlFor='password' className={ui.label}>
+                        Password
+                    </label>
                     <input
+                        id='password'
                         type='password'
-                        className={field}
+                        autoComplete='off'
+                        className={ui.input}
                         value={password}
-                        onChange={(e) => setPassword(e.target.value)}
+                        onChange={onPasswordChange}
+                        placeholder='Used to encrypt and decrypt the message'
                     />
                 </div>
 
-                <div className='bg-white rounded p-4 shadow-sm space-y-4'>
-                    <h2 className='font-semibold'>Embed</h2>
+                <Section styles={ui.card} step='01' title='Embed'>
                     <FilePicker
                         file={sourceFile}
                         onFile={setSourceFile}
                         hint='PNG, JPEG, WebP'
                     />
 
-                    <div className='flex gap-3 items-end'>
+                    <form
+                        onSubmit={handleEmbed}
+                        className='flex items-end gap-3'
+                    >
                         <div className='flex-1'>
-                            <label className='text-sm block mb-1'>
+                            <label htmlFor='message' className={ui.label}>
                                 Message
                             </label>
                             <input
-                                className={field}
+                                id='message'
+                                className={ui.input}
                                 value={message}
-                                onChange={(e) => setMessage(e.target.value)}
+                                onChange={onMessageChange}
+                                placeholder='Text to hide in the image'
                             />
                         </div>
                         <button
-                            className={btn}
-                            onClick={handleEmbed}
+                            type='submit'
+                            className={ui.primary}
                             disabled={busy}
                         >
                             Embed
                         </button>
-                    </div>
+                    </form>
 
                     {(sourceUrl || outputUrl) && (
                         <div className='grid grid-cols-2 gap-4'>
@@ -192,31 +150,23 @@ export default function App() {
                     )}
 
                     {outputUrl && (
-                        <button className={btn} onClick={download}>
+                        <button className={ui.secondary} onClick={download}>
                             Download PNG
                         </button>
                     )}
-                </div>
+                </Section>
 
-                <div className='bg-white rounded p-4 shadow-sm space-y-4'>
-                    <h2 className='font-semibold'>Extract</h2>
-                    <p className='text-sm text-gray-500'>
-                        Uses the watermarked image above, or pick a different
-                        file.
-                    </p>
+                <Section
+                    styles={ui.card}
+                    step='02'
+                    title='Extract'
+                    description='Uses the watermarked image above, or pick a different file.'
+                >
                     <FilePicker
                         file={extractBlob instanceof File ? extractBlob : null}
                         onFile={setExtractBlob}
                         hint='Optional, replaces the watermarked image'
                     />
-
-                    <button
-                        className={btn}
-                        onClick={handleExtract}
-                        disabled={busy}
-                    >
-                        Extract
-                    </button>
 
                     {extractUrl && (
                         <div>
@@ -224,34 +174,48 @@ export default function App() {
                                 src={extractUrl}
                                 label='Extraction source'
                             />
-                            <p className='text-xs text-gray-500 mt-1'>
-                                {extractBlob.type || 'unknown type'},{' '}
+                            <p className='mt-1.5 font-mono text-xs text-zinc-500'>
+                                {extractBlob.type || 'unknown type'} ·{' '}
                                 {(extractBlob.size / 1024).toFixed(1)} KB
                             </p>
                         </div>
                     )}
 
+                    <button
+                        className={ui.primary}
+                        onClick={handleExtract}
+                        disabled={busy || !extractBlob}
+                    >
+                        Extract
+                    </button>
+
                     {result !== null && (
                         <div
-                            className={`rounded p-3 text-sm ${result === false ? 'bg-amber-100' : 'bg-green-100'}`}
+                            role='status'
+                            className={`rounded-md border px-3 py-2.5 text-sm ${
+                                result === false
+                                    ? 'border-amber-300 bg-amber-50 text-amber-900'
+                                    : 'border-zinc-200 bg-zinc-50 text-zinc-900'
+                            }`}
                         >
                             {result === false ? (
-                                'Nothing found (no watermark, wrong password, or corrupted)'
+                                'Nothing found (no watermark, wrong password, or corrupted).'
                             ) : (
-                                <code className='break-all'>{result}</code>
+                                <>
+                                    <div className='mb-1 text-xs font-medium uppercase tracking-wide text-zinc-500'>
+                                        Extracted message
+                                    </div>
+                                    <code className='break-all font-mono'>
+                                        {result}
+                                    </code>
+                                </>
                             )}
                         </div>
                     )}
-                </div>
-
-                {status && (
-                    <p
-                        className={`text-sm ${isError ? 'text-red-600' : 'text-gray-600'}`}
-                    >
-                        {status}
-                    </p>
-                )}
+                </Section>
             </div>
         </div>
     )
 }
+
+export default App
